@@ -19,6 +19,7 @@ set(SETTINGS_TEST_SOURCES
     # Under test
     ${CMAKE_SOURCE_DIR}/src/core/emulator_settings.cpp
     ${CMAKE_SOURCE_DIR}/src/core/emulator_state.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/game_compatibility.cpp
 
     # Minimal common support
     ${CMAKE_SOURCE_DIR}/src/common/path_util.cpp

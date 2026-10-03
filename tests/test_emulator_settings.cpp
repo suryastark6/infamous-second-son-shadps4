@@ -16,6 +16,7 @@
 #include "common/scm_rev.h"
 #include "core/emulator_settings.h"
 #include "core/emulator_state.h"
+#include "core/game_compatibility.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -773,3 +774,36 @@ TEST_F(EmulatorSettingsTest, DestructorNoSaveIfLoadNeverCalled) {
     auto t1 = fs::last_write_time(ConfigJson());
     EXPECT_EQ(t0, t1) << "Destructor wrote config.json without a prior Load()";
 }
+
+TEST_F(EmulatorSettingsTest, InfamousSecondSonSerialDetection) {
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousSecondSonSerial("CUSA00004"));
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousSecondSonSerial("CUSA00223"));
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousSecondSonSerial("CUSA00046"));
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousSecondSonSerial("CUSA00359"));
+    EXPECT_FALSE(Core::GameCompatibilityManager::IsInfamousSecondSonSerial("CUSA01234"));
+
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousFirstLightSerial("CUSA00575"));
+    EXPECT_TRUE(Core::GameCompatibilityManager::IsInfamousFirstLightSerial("CUSA00897"));
+    EXPECT_FALSE(Core::GameCompatibilityManager::IsInfamousFirstLightSerial("CUSA00004"));
+}
+
+TEST_F(EmulatorSettingsTest, InfamousSecondSonCompatibilityBootProfile) {
+    auto& mgr = Core::GameCompatibilityManager::Instance();
+    mgr.Reset();
+    EXPECT_FALSE(mgr.IsSecondSonActive());
+
+    temp_settings->SetReadbacksMode(GpuReadbacksMode::Disabled);
+    temp_settings->SetRedZonePatchingEnabled(false);
+
+    mgr.OnGameBoot("CUSA00004", "inFAMOUS Second Son", "01.07");
+    EXPECT_TRUE(mgr.IsSecondSonActive());
+    EXPECT_EQ(mgr.GetActiveSerial(), "CUSA00004");
+    EXPECT_EQ(temp_settings->GetReadbacksMode(), GpuReadbacksMode::Relaxed);
+    EXPECT_EQ(mgr.GetEffectiveReadbackMaxRangeBytes(512ULL * 1024ULL), 64ULL * 1024ULL);
+    EXPECT_TRUE(mgr.ShouldSynthesizeSprayCanMotion());
+#if defined(_WIN32) && defined(ARCH_X86_64)
+    EXPECT_TRUE(temp_settings->IsRedZonePatchingEnabled());
+#endif
+    mgr.Reset();
+}
+

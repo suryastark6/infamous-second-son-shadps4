@@ -421,3 +421,26 @@ cmake-build-*
 
 # Nix Result symlink
 result
+
+# Local Python virtual environment and diagnostic artifacts
+.venv/
+venv/
+.pytest_cache/
+New Text Document.txt
+bin/baseline/
+
+# Copyrighted game dumps, firmware, keys, and raw binaries
+*.pkg
+*.iso
+*.elf
+*.self
+*.prx
+*.sprx
+*.dec
+/game/
+/games/
+/dumps/
+/firmware/
+/keys/
+/sys_modules/
+

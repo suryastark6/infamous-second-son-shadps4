@@ -120,6 +120,8 @@ enum class Class {
     Loader,                  ///< ROM loader
     Input,                   ///< Input emulation
     Tty,                     ///< Debug output from emu
+    Compatibility,           ///< Game-specific compatibility profiles and workarounds
+    Performance,             ///< Performance telemetry, memory budgeting, and frame pacing
     Count                    ///< Total number of logging classes
 };
 static constexpr int NUM_LOG_CLASSES = static_cast<int>(Class::Count);

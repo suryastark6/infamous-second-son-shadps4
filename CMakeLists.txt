@@ -961,6 +961,8 @@ set(CORE src/core/aerolib/stubs.cpp
          src/core/emulator_state.h
          src/core/emulator_settings.cpp
          src/core/emulator_settings.h
+         src/core/game_compatibility.cpp
+         src/core/game_compatibility.h
          src/core/user_manager.cpp
          src/core/user_manager.h
          src/core/user_settings.cpp

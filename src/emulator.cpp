@@ -36,6 +36,7 @@
 #include "core/file_format/psf.h"
 #include "core/file_format/trp.h"
 #include "core/file_sys/fs.h"
+#include "core/game_compatibility.h"
 #include "core/libraries/kernel/kernel.h"
 #include "core/libraries/libs.h"
 #include "core/libraries/np/np_trophy.h"
@@ -437,6 +438,8 @@ void Emulator::Run(std::filesystem::path file, std::vector<std::string> args,
     Common::Log::Switch((!id.empty() && EmulatorSettings.IsLogSeparate()) ? id + ".log"
                                                                           : "shad_log.txt",
                         append_log);
+
+    Core::GameCompatibilityManager::Instance().OnGameBoot(id, title, app_version);
 
     auto guest_eboot_path = "/app0/" + eboot_name.generic_string();
 

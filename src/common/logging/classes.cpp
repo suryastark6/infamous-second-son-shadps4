@@ -223,6 +223,10 @@ std::string_view NameOf(Class log_class) {
         return "Input";
     case Class::Tty:
         return "Tty";
+    case Class::Compatibility:
+        return "Compatibility";
+    case Class::Performance:
+        return "Performance";
     case Class::Count:
         return "Count";
     }

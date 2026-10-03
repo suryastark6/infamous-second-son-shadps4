@@ -1,4 +1,4 @@
-﻿// SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2025-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
@@ -205,6 +205,8 @@ struct GeneralSettings {
     Setting<std::string> signaling_info{};
     Setting<bool> enable_upnp{true};
     Setting<bool> redzone_patches{false};
+    Setting<bool> second_son_compat_enabled{true};
+    Setting<bool> motion_shake_fallback_enabled{true};
 
     // return a vector of override descriptors (runtime, but tiny)
     std::vector<OverrideItem> GetOverrideableFields() const {
@@ -232,7 +234,11 @@ struct GeneralSettings {
                                            &GeneralSettings::shadnet_webapi_server),
             make_override<GeneralSettings>("signaling_info", &GeneralSettings::signaling_info),
             make_override<GeneralSettings>("enable_upnp", &GeneralSettings::enable_upnp),
-            make_override<GeneralSettings>("redzone_patches", &GeneralSettings::redzone_patches)};
+            make_override<GeneralSettings>("redzone_patches", &GeneralSettings::redzone_patches),
+            make_override<GeneralSettings>("second_son_compat_enabled",
+                                           &GeneralSettings::second_son_compat_enabled),
+            make_override<GeneralSettings>("motion_shake_fallback_enabled",
+                                           &GeneralSettings::motion_shake_fallback_enabled)};
     }
 };
 
@@ -244,7 +250,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GeneralSettings, install_dirs, addon_install_
                                    discord_rpc_enabled, show_fps_counter, console_language,
                                    big_picture_scale, big_picture_folder_depth, shadnet_server,
                                    shadnet_webapi_server, signaling_info, enable_upnp,
-                                   redzone_patches)
+                                   redzone_patches, second_son_compat_enabled,
+                                   motion_shake_fallback_enabled)
 
 // -------------------------------
 // Log settings
@@ -416,6 +423,9 @@ struct GPUSettings {
     Setting<int> rcas_attenuation{250};
     Setting<bool> userfaultfd{false};
     Setting<bool> inline_fetch_shader{false};
+    Setting<bool> adaptive_readbacks_enabled{true};
+    Setting<bool> vram_spillover_enabled{true};
+    Setting<bool> compressed_storage_fallback_enabled{true};
 
     std::vector<OverrideItem> GetOverrideableFields() const {
         return std::vector<OverrideItem>{
@@ -440,6 +450,12 @@ struct GPUSettings {
             make_override<GPUSettings>("vblank_frequency", &GPUSettings::vblank_frequency),
             make_override<GPUSettings>("userfaultfd", &GPUSettings::userfaultfd),
             make_override<GPUSettings>("inline_fetch_shader", &GPUSettings::inline_fetch_shader),
+            make_override<GPUSettings>("adaptive_readbacks_enabled",
+                                       &GPUSettings::adaptive_readbacks_enabled),
+            make_override<GPUSettings>("vram_spillover_enabled",
+                                       &GPUSettings::vram_spillover_enabled),
+            make_override<GPUSettings>("compressed_storage_fallback_enabled",
+                                       &GPUSettings::compressed_storage_fallback_enabled),
         };
     }
 };
@@ -449,7 +465,8 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(GPUSettings, window_width, window_height, int
                                    direct_memory_access_enabled, dump_shaders, patch_shaders,
                                    vblank_frequency, full_screen, full_screen_mode, present_mode,
                                    hdr_allowed, fsr_enabled, rcas_enabled, rcas_attenuation,
-                                   userfaultfd, inline_fetch_shader)
+                                   userfaultfd, inline_fetch_shader, adaptive_readbacks_enabled,
+                                   vram_spillover_enabled, compressed_storage_fallback_enabled)
 
 // -------------------------------
 // Vulkan settings
@@ -667,6 +684,8 @@ public:
     SETTING_FORWARD(m_general, SignalingInfo, signaling_info)
     SETTING_FORWARD_BOOL(m_general, UPnPEnabled, enable_upnp)
     SETTING_FORWARD_BOOL(m_general, RedZonePatchingEnabled, redzone_patches)
+    SETTING_FORWARD_BOOL(m_general, SecondSonCompatEnabled, second_son_compat_enabled)
+    SETTING_FORWARD_BOOL(m_general, MotionShakeFallbackEnabled, motion_shake_fallback_enabled)
 
     // Log settings
     SETTING_FORWARD_BOOL(m_log, LogAppend, append)
@@ -719,6 +738,10 @@ public:
     SETTING_FORWARD_BOOL_READONLY(m_gpu, PatchShaders, patch_shaders)
     SETTING_FORWARD_BOOL(m_gpu, UserfaultfdTracking, userfaultfd)
     SETTING_FORWARD_BOOL_READONLY(m_gpu, InlineFetchShader, inline_fetch_shader)
+    SETTING_FORWARD_BOOL(m_gpu, AdaptiveReadbacksEnabled, adaptive_readbacks_enabled)
+    SETTING_FORWARD_BOOL(m_gpu, VramSpilloverEnabled, vram_spillover_enabled)
+    SETTING_FORWARD_BOOL(m_gpu, CompressedStorageFallbackEnabled,
+                         compressed_storage_fallback_enabled)
 
     u32 GetVblankFrequency() {
         if (m_gpu.vblank_frequency.value < 30) {
