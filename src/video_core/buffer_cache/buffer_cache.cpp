@@ -6,6 +6,8 @@
 
 #include "common/alignment.h"
 #include "core/debug_state.h"
+#include "core/emulator_settings.h"
+#include "core/game_compatibility.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/buffer_cache/buffer.h"
@@ -77,6 +79,12 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         FindMemoryType(instance.GetMemoryProperties(), vk::MemoryPropertyFlagBits::eDeviceLocal,
                        reqs.memoryTypeBits)
             .value();
+    const u32 fallback_mask = reqs.memoryTypeBits & ~(1u << arena_memory_type_index);
+    fallback_arena_memory_type_index = FindMemoryType(
+        instance.GetMemoryProperties(), vk::MemoryPropertyFlagBits::eHostVisible, fallback_mask);
+    if (!fallback_arena_memory_type_index.has_value() && fallback_mask != 0) {
+        fallback_arena_memory_type_index = std::countr_zero(fallback_mask);
+    }
 
     const u64 bda_pagetable_size =
         (blocks_per_arena_page * NUM_ARENA_PAGES) * sizeof(vk::DeviceAddress);
@@ -108,13 +116,18 @@ void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write, bool as
         const auto* arena = GetArena(first_block, last_block);
 
         // GPU-modified ranges come as many small scattered islands,
-        // so the download is widened to a window around the request
-        constexpr u64 WindowSize = 512_KB;
+        // so the download is widened to a window around the request.
+        // For inFAMOUS: Second Son with adaptive readbacks enabled, bound the window to 64 KB
+        // instead of 512 KB to avoid large synchronous transfer stalls on 4 GB VRAM GPUs.
+        constexpr u64 DefaultWindowSize = 512_KB;
+        const u64 window_size =
+            Core::GameCompatibilityManager::Instance().GetEffectiveReadbackMaxRangeBytes(
+                DefaultWindowSize);
         const VAddr arena_end = arena->cpu_addr + arena->size_bytes;
         const VAddr window_start =
-            std::max<VAddr>(Common::AlignDown(device_addr, WindowSize), arena->cpu_addr);
+            std::max<VAddr>(Common::AlignDown(device_addr, window_size), arena->cpu_addr);
         const VAddr window_end = std::min<VAddr>(
-            std::max<VAddr>(window_start + WindowSize, device_addr + size), arena_end);
+            std::max<VAddr>(window_start + window_size, device_addr + size), arena_end);
         DownloadMemory(arena, window_start, window_end - window_start);
         if (is_write) {
             memory_tracker->MarkRegionAsCpuModified(device_addr, size);
@@ -285,11 +298,23 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         return;
     }
 
-    const vk::MemoryAllocateInfo alloc_info = {
+    vk::MemoryAllocateInfo alloc_info = {
         .allocationSize = resident_blocks << block_shift,
         .memoryTypeIndex = arena_memory_type_index,
     };
-    const auto device_memory = Vulkan::Check(instance.GetDevice().allocateMemory(alloc_info));
+    auto alloc_res = instance.GetDevice().allocateMemory(alloc_info);
+    if (alloc_res.result != vk::Result::eSuccess && EmulatorSettings.IsVramSpilloverEnabled() &&
+        fallback_arena_memory_type_index.has_value()) {
+        alloc_info.memoryTypeIndex = fallback_arena_memory_type_index.value();
+        alloc_res = instance.GetDevice().allocateMemory(alloc_info);
+        if (alloc_res.result == vk::Result::eSuccess) {
+            LOG_WARNING(Performance,
+                        "Device-local sparse arena memory exhausted ({} KiB); spilled to host "
+                        "memory type {}",
+                        (resident_blocks << block_shift) / 1024, alloc_info.memoryTypeIndex);
+        }
+    }
+    const auto device_memory = Vulkan::Check(alloc_res);
 
     boost::container::small_vector<vk::BufferCopy, 8> copies;
     const auto staging =

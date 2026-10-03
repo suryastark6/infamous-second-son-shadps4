@@ -3,6 +3,8 @@
 
 #include <memory>
 #include "common/assert.h"
+#include "core/emulator_settings.h"
+#include "core/game_compatibility.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -117,6 +119,28 @@ void UniqueImage::Create(const vk::ImageCreateInfo& image_ci) {
     VmaAllocationInfo alloc_info{};
     VkResult result = vmaCreateImage(allocator, &image_ci_unsafe, &alloc_ci, &unsafe_image,
                                      &allocation, &alloc_info);
+    if (result != VK_SUCCESS && EmulatorSettings.IsVramSpilloverEnabled()) {
+        // On 4 GB VRAM GPUs (e.g. RTX 3050 Laptop), VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT
+        // rejects allocations as soon as the WDDM budget (~3.2 GB) is reached. Retry without
+        // the strict budget cap so the driver can spill non-critical allocations to shared memory.
+        const VmaAllocationCreateInfo fallback_alloc_ci = {
+            .flags = 0,
+            .usage = VMA_MEMORY_USAGE_AUTO,
+            .requiredFlags = 0,
+            .preferredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .pool = VK_NULL_HANDLE,
+            .pUserData = nullptr,
+        };
+        result = vmaCreateImage(allocator, &image_ci_unsafe, &fallback_alloc_ci, &unsafe_image,
+                                &allocation, &alloc_info);
+        if (result == VK_SUCCESS) {
+            LOG_WARNING(Performance,
+                        "VRAM budget exceeded during {}x{} image creation ({}); succeeded via "
+                        "unbudgeted VMA spillover",
+                        image_ci.extent.width, image_ci.extent.height,
+                        vk::to_string(image_ci.format));
+        }
+    }
     ASSERT_MSG(result == VK_SUCCESS, "Failed allocating image with error {}",
                vk::to_string(vk::Result{result}));
     image = vk::Image{unsafe_image};
@@ -154,15 +178,38 @@ Image::Image(const Vulkan::Instance& instance, Vulkan::Runtime& runtime_,
 
     constexpr auto tiling = vk::ImageTiling::eOptimal;
     const auto supported_format = instance.GetSupportedFormat(info.pixel_format, format_features);
-    const vk::PhysicalDeviceImageFormatInfo2 format_info{
+    vk::PhysicalDeviceImageFormatInfo2 format_info{
         .format = supported_format,
         .type = ConvertImageType(info.type),
         .tiling = tiling,
         .usage = usage_flags,
         .flags = flags,
     };
-    const auto image_format_properties =
+    auto image_format_properties =
         instance.GetPhysicalDevice().getImageFormatProperties2(format_info);
+    if (image_format_properties.result == vk::Result::eErrorFormatNotSupported &&
+        info.props.is_block && EmulatorSettings.IsCompressedStorageFallbackEnabled()) {
+        // Block-compressed formats (BC1..BC7) often reject VK_IMAGE_USAGE_STORAGE_BIT on
+        // desktop/laptop Vulkan drivers even with eExtendedUsage/eBlockTexelViewCompatible
+        // (e.g. Bc3UnormBlock 1D/2D and Bc5UnormBlock 2D in inFAMOUS: Second Son).
+        usage_flags &= ~vk::ImageUsageFlagBits::eStorage;
+        format_info.usage = usage_flags;
+        image_format_properties =
+            instance.GetPhysicalDevice().getImageFormatProperties2(format_info);
+        if (image_format_properties.result == vk::Result::eErrorFormatNotSupported) {
+            flags &= ~(vk::ImageCreateFlagBits::eBlockTexelViewCompatible |
+                       vk::ImageCreateFlagBits::eExtendedUsage);
+            format_info.flags = flags;
+            image_format_properties =
+                instance.GetPhysicalDevice().getImageFormatProperties2(format_info);
+        }
+        if (image_format_properties.result == vk::Result::eSuccess) {
+            LOG_DEBUG(Compatibility,
+                      "Sanitized unsupported storage/texel-view flags on compressed image format "
+                      "{} type {}",
+                      vk::to_string(supported_format), vk::to_string(format_info.type));
+        }
+    }
     if (image_format_properties.result == vk::Result::eErrorFormatNotSupported) {
         LOG_ERROR(Render_Vulkan, "image format {} type {} is not supported (flags {}, usage {})",
                   vk::to_string(supported_format), vk::to_string(format_info.type),

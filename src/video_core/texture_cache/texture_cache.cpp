@@ -65,7 +65,16 @@ TextureCache::TextureCache(const Vulkan::Instance& instance_, Vulkan::Scheduler&
     critical_gc_memory = static_cast<u64>(
         std::max<s64>(std::min(device_local_memory - min_vacancy_critical, min_spacing_critical),
                       min_critical_floor));
-    trigger_gc_memory = static_cast<u64>((device_local_memory - mem_threshold) / 2);
+    const s64 raw_trigger = (device_local_memory - mem_threshold) / 2;
+    trigger_gc_memory = static_cast<u64>(
+        raw_trigger > 0 ? raw_trigger
+                        : std::max<s64>(min_pressure_floor / 2,
+                                        static_cast<s64>(pressure_gc_memory) * 3 / 4));
+    LOG_INFO(Performance,
+             "TextureCache VRAM GC configured: budget={} MiB, trigger={} MiB, pressure={} MiB, "
+             "critical={} MiB",
+             device_local_memory / (1024 * 1024), trigger_gc_memory / (1024 * 1024),
+             pressure_gc_memory / (1024 * 1024), critical_gc_memory / (1024 * 1024));
 }
 
 TextureCache::~TextureCache() = default;
@@ -928,9 +937,12 @@ void TextureCache::GarbageCollectImages() {
     const auto configure = [&](bool allow_aggressive) {
         pressured = total_used_memory >= pressure_gc_memory;
         aggresive = allow_aggressive && total_used_memory >= critical_gc_memory;
-        ticks_to_destroy = aggresive ? 160 : pressured ? 80 : 16;
+        // ForEachItemBelow(gc_tick - ticks_to_destroy) evicts items untouched for at least
+        // ticks_to_destroy ticks. Under critical VRAM pressure (e.g. 4 GB RTX 3050), evict
+        // younger inactive textures (4 ticks) rather than refusing to evict anything < 160 ticks.
+        ticks_to_destroy = aggresive ? 4 : pressured ? 32 : 160;
         ticks_to_destroy = std::min(ticks_to_destroy, gc_tick);
-        num_deletions = aggresive ? 40 : pressured ? 20 : 10;
+        num_deletions = aggresive ? 128 : pressured ? 48 : 16;
     };
     const auto clean_up = [&](Image& image) {
         if (num_deletions == 0) {
@@ -969,6 +981,9 @@ void TextureCache::GarbageCollectImages() {
     configure(false);
     image_lru_cache.ForEachItemBelow(gc_tick - ticks_to_destroy, clean_up);
 
+    if (instance.CanReportMemoryUsage()) {
+        total_used_memory = instance.GetDeviceMemoryUsage();
+    }
     if (total_used_memory >= critical_gc_memory) {
         // If we are still over the critical limit, run an aggressive GC
         configure(true);
@@ -989,9 +1004,9 @@ void TextureCache::GarbageCollectSamplers() {
     const auto configure = [&](bool allow_aggressive) {
         pressured = total_used_samplers >= pressure_gc_samplers;
         aggresive = allow_aggressive && total_used_samplers >= critical_gc_samplers;
-        ticks_to_destroy = aggresive ? 160 : pressured ? 80 : 16;
+        ticks_to_destroy = aggresive ? 4 : pressured ? 32 : 160;
         ticks_to_destroy = std::min(ticks_to_destroy, gc_tick);
-        num_deletions = aggresive ? 40 : pressured ? 20 : 10;
+        num_deletions = aggresive ? 64 : pressured ? 32 : 16;
     };
     const auto clean_up = [&](Sampler& sampler) {
         if (num_deletions == 0) {

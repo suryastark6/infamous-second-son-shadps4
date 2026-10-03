@@ -5,6 +5,7 @@
 
 #include "common/alignment.h"
 #include "common/assert.h"
+#include "core/emulator_settings.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
@@ -101,6 +102,24 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
         VkBuffer unsafe_buffer{};
         VkResult result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &alloc_ci, &unsafe_buffer,
                                           &allocation, out_alloc_info);
+        if (result != VK_SUCCESS && EmulatorSettings.IsVramSpilloverEnabled()) {
+            const VmaAllocationCreateInfo fallback_alloc_ci = {
+                .flags = bda_flag | MemoryUsageVmaFlags(mem_type),
+                .usage = VMA_MEMORY_USAGE_AUTO,
+                .requiredFlags = 0,
+                .preferredFlags = MemoryUsagePreferredVmaFlags(mem_type),
+                .pool = VK_NULL_HANDLE,
+                .pUserData = nullptr,
+            };
+            result = vmaCreateBuffer(allocator, &buffer_ci_unsafe, &fallback_alloc_ci,
+                                     &unsafe_buffer, &allocation, out_alloc_info);
+            if (result == VK_SUCCESS) {
+                LOG_WARNING(Performance,
+                            "VRAM budget exceeded during {} byte buffer allocation ({}); "
+                            "succeeded via unbudgeted VMA spillover",
+                            static_cast<u64>(buffer_ci.size), BufferTypeName(mem_type));
+            }
+        }
         ASSERT_MSG(result == VK_SUCCESS, "Failed allocating buffer with error {}",
                    vk::to_string(vk::Result{result}));
         buffer = vk::Buffer{unsafe_buffer};
