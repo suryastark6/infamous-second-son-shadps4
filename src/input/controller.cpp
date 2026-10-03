@@ -1,4 +1,4 @@
-﻿// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
+// SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
@@ -12,6 +12,7 @@
 
 #include "common/logging/log.h"
 #include "core/emulator_settings.h"
+#include "core/game_compatibility.h"
 #include "core/libraries/kernel/time.h"
 #include "core/libraries/system/userservice.h"
 #include "core/user_settings.h"
@@ -26,13 +27,18 @@ namespace {
 void CalculateOrientation(const Libraries::Pad::OrbisFVector3& angular_velocity, float delta_time,
                           const Libraries::Pad::OrbisFQuaternion& last_orientation,
                           Libraries::Pad::OrbisFQuaternion& orientation) {
-    if (delta_time > 1.0f) {
+    if (delta_time <= 0.0f || delta_time > 1.0f || !std::isfinite(delta_time)) {
         orientation = last_orientation;
         return;
     }
     Libraries::Pad::OrbisFQuaternion q = last_orientation;
-    const Libraries::Pad::OrbisFQuaternion omega = {angular_velocity.x, angular_velocity.y,
-                                                    angular_velocity.z, 0.0f};
+    if (!std::isfinite(q.x) || !std::isfinite(q.y) || !std::isfinite(q.z) || !std::isfinite(q.w)) {
+        q = {0.0f, 0.0f, 0.0f, 1.0f};
+    }
+    const Libraries::Pad::OrbisFQuaternion omega = {
+        std::isfinite(angular_velocity.x) ? angular_velocity.x : 0.0f,
+        std::isfinite(angular_velocity.y) ? angular_velocity.y : 0.0f,
+        std::isfinite(angular_velocity.z) ? angular_velocity.z : 0.0f, 0.0f};
 
     const Libraries::Pad::OrbisFQuaternion q_omega = {
         q.w * omega.x + q.x * omega.w + q.y * omega.z - q.z * omega.y,
@@ -49,6 +55,10 @@ void CalculateOrientation(const Libraries::Pad::OrbisFVector3& angular_velocity,
     q.w += q_dot.w * delta_time;
 
     const float norm = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (norm <= 1e-6f || !std::isfinite(norm)) {
+        orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+        return;
+    }
     q.x /= norm;
     q.y /= norm;
     q.z /= norm;
@@ -90,6 +100,14 @@ int GameController::ReadStates(State* states, int states_num) {
             break;
         }
         states[read_count++] = std::move(*state);
+    }
+    if (read_count == 0) {
+        // PS4 scePadRead guarantees at least the current latest state is written to pData[0]
+        // and returns >= 1 when a controller is connected, even if no new state transition
+        // occurred since the previous poll. Returning 0 leaves pData[0] uninitialized in games
+        // like inFAMOUS: Second Son that poll scePadRead with count > 1 every frame.
+        states[0] = m_state;
+        return 1;
     }
     return read_count;
 }
@@ -206,8 +224,32 @@ void GameController::PushStateLocked(u64 timestamp) {
         timestamp = Libraries::Kernel::sceKernelGetProcessTime();
     }
     m_state.UpdateAxisSmoothing(timestamp);
-    m_state.OnGyro(gyro_buf);
-    m_state.OnAccel(accel_buf);
+    float effective_gyro[3] = {gyro_buf[0], gyro_buf[1], gyro_buf[2]};
+    float effective_accel[3] = {accel_buf[0], accel_buf[1], accel_buf[2]};
+
+    // When playing inFAMOUS: Second Son on a keyboard/mouse or non-gyro XInput controller,
+    // stencil graffiti activities require tilting the controller 90 degrees and shaking the
+    // spray can before spraying with R2. Synthesize spray-can shake & tilt when L2 or R2 is
+    // held and no physical motion sensor movement is present.
+    if (Core::GameCompatibilityManager::Instance().ShouldSynthesizeSprayCanMotion()) {
+        const bool has_physical_gyro =
+            (std::fabs(gyro_buf[0]) + std::fabs(gyro_buf[1]) + std::fabs(gyro_buf[2])) > 0.05f;
+        const bool trigger_active =
+            m_state.axes[static_cast<int>(Input::Axis::TriggerLeft)] > 32 ||
+            m_state.axes[static_cast<int>(Input::Axis::TriggerRight)] > 32 ||
+            True(m_state.buttonsState & OrbisPadButtonDataOffset::L2) ||
+            True(m_state.buttonsState & OrbisPadButtonDataOffset::R2);
+        if (!has_physical_gyro && trigger_active) {
+            const float phase = static_cast<float>(timestamp % 1'000'000ULL) * 1e-6f * 62.831853f;
+            effective_accel[0] = 28.0f * std::sin(phase);
+            effective_accel[1] = 28.0f * std::cos(phase);
+            effective_accel[2] = 9.81f * std::sin(phase * 0.5f);
+            effective_gyro[2] = 6.0f * std::cos(phase);
+        }
+    }
+
+    m_state.OnGyro(effective_gyro);
+    m_state.OnAccel(effective_accel);
     UpdateOrientationLocked(timestamp);
     m_state.time = timestamp;
     m_state.touch_time_since_held_down =

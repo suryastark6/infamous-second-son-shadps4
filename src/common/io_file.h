@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <span>
 #include <type_traits>
+#include <vector>
 
 #include "common/assert.h"
 #include "common/concepts.h"
@@ -170,7 +171,23 @@ public:
 
     template <typename T>
     size_t ReadRaw(void* data, size_t size) const {
+        const s64 start_offset = Tell();
         u64 read = std::fread(data, sizeof(T), size, file);
+        if (std::ferror(file) != 0 && size > 0 && data != nullptr) {
+            // On Windows, ReadFile/fread directly into guest memory pages protected by
+            // PageManager (PAGE_NOACCESS / PAGE_READONLY for GPU buffer/texture tracking)
+            // fails in the kernel with ERROR_INVALID_USER_BUFFER / ERROR_NOACCESS (errno=EINVAL).
+            // Stage into a host buffer and memcpy so user-mode VEH page watchers fire cleanly.
+            std::clearerr(file);
+            if (start_offset >= 0 && Seek(start_offset, SeekOrigin::SetOffset)) {
+                std::vector<u8> staging(size * sizeof(T));
+                read = std::fread(staging.data(), sizeof(T), size, file);
+                if (std::ferror(file) == 0 && read > 0) {
+                    std::memcpy(data, staging.data(), read * sizeof(T));
+                    return read;
+                }
+            }
+        }
         ASSERT_MSG(std::ferror(file) == 0, "Failed to read file, error = {}", std::strerror(errno));
         return read;
     }
