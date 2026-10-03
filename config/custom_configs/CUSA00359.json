@@ -1,0 +1,77 @@
+{
+  "Audio": {
+    "audio_backend": 0
+  },
+  "Debug": {
+    "debug_dump": false,
+    "shader_collect": false
+  },
+  "GPU": {
+    "adaptive_readbacks_enabled": true,
+    "compressed_storage_fallback_enabled": true,
+    "copy_gpu_buffers": false,
+    "direct_memory_access_enabled": false,
+    "dump_shaders": false,
+    "fsr_enabled": true,
+    "full_screen": false,
+    "full_screen_mode": "Windowed",
+    "hdr_allowed": false,
+    "inline_fetch_shader": false,
+    "null_gpu": false,
+    "patch_shaders": false,
+    "present_mode": "Mailbox",
+    "rcas_attenuation": 250,
+    "rcas_enabled": true,
+    "readback_linear_images_enabled": false,
+    "readbacks_mode": 1,
+    "userfaultfd": false,
+    "vblank_frequency": 60,
+    "vram_spillover_enabled": true,
+    "window_height": 720,
+    "window_width": 1280
+  },
+  "General": {
+    "connected_to_network": false,
+    "console_language": 1,
+    "dev_kit_mode": false,
+    "extra_dmem_in_mbytes": 0,
+    "extra_fmem_in_mbytes": 0,
+    "motion_shake_fallback_enabled": true,
+    "neo_mode": false,
+    "redzone_patches": true,
+    "second_son_compat_enabled": true,
+    "show_splash": false,
+    "volume_slider": 100
+  },
+  "Input": {
+    "background_controller_input": false,
+    "cursor_hide_timeout": 5,
+    "cursor_state": 1,
+    "motion_controls_enabled": true
+  },
+  "Log": {
+    "append": false,
+    "enable": true,
+    "filter": "*:Info Compatibility:Debug Performance:Info",
+    "separate": true,
+    "skip_duplicate": true,
+    "sync": true,
+    "type": "wincolor"
+  },
+  "Vulkan": {
+    "gpu_id": 0,
+    "pipeline_cache_archived": false,
+    "pipeline_cache_enabled": true,
+    "renderdoc_enabled": false,
+    "vkcrash_diagnostic_enabled": false,
+    "vkguest_markers": false,
+    "vkhost_markers": false,
+    "vkvalidation_core_enabled": true,
+    "vkvalidation_enabled": false,
+    "vkvalidation_gpu_enabled": false,
+    "vkvalidation_sync_enabled": false
+  },
+  "WindowsGuestRedZoneProtection": {
+    "windows_guest_red_zone_protection_mode": "StaticPatching"
+  }
+}
