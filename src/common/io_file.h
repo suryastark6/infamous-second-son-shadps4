@@ -179,7 +179,7 @@ public:
             // fails in the kernel with ERROR_INVALID_USER_BUFFER / ERROR_NOACCESS (errno=EINVAL).
             // Stage into a host buffer and memcpy so user-mode VEH page watchers fire cleanly.
             std::clearerr(file);
-            if (start_offset >= 0 && Seek(start_offset, SeekOrigin::SetOffset)) {
+            if (start_offset >= 0 && Seek(start_offset, SeekOrigin::SetOrigin)) {
                 std::vector<u8> staging(size * sizeof(T));
                 read = std::fread(staging.data(), sizeof(T), size, file);
                 if (std::ferror(file) == 0 && read > 0) {
